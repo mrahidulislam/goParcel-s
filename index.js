@@ -80,6 +80,35 @@ async function run() {
         })
 
         // PAYMENT RELATED API'S -->
+
+        app.post('/payment-checkout-session', async (req, res) => {
+            const paymentInfo = req.body;
+            const amount = parseInt(paymentInfo.cost) * 100;
+            const session = await stripe.checkout.sessions.create({
+                line_items: [
+                    {
+                        price_data: {
+                            currency: 'usd',
+                            unit_amount: amount,
+                            product_data: {
+                                name: `Please pay for: ${paymentInfo.parcelName}`
+                            }
+                        },
+                        quantity: 1,
+                    }
+                ],
+                mode: 'payment',
+                metadata: {
+                    parcelId: paymentInfo.parcelId
+                },
+                customer_email: paymentInfo.senderEmail,
+                success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancelled`,
+            })
+            res.send({ url: session.url })
+        })
+
+        // OLD-->
         app.post('/create-checkout-session', async (req, res) => {
             const paymentInfo = req.body;
             const amount = parseInt(paymentInfo.cost) * 100;
@@ -90,15 +119,15 @@ async function run() {
                         price_data: {
                             currency: 'USD',
                             unit_amount: amount,
-                            product_data :{
-                                name : paymentInfo.parcelName,
+                            product_data: {
+                                name: paymentInfo.parcelName,
                             }
-                            
+
                         },
                         quantity: 1,
                     },
                 ],
-                customer_email : paymentInfo.senderEmail,
+                customer_email: paymentInfo.senderEmail,
                 mode: 'payment',
                 metadata: {
                     parcelId: paymentInfo.parcelId
@@ -113,13 +142,13 @@ async function run() {
         })
 
 
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
-} finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
-}
+        // Send a ping to confirm a successful connection
+        await client.db("admin").command({ ping: 1 });
+        console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    } finally {
+        // Ensures that the client will close when you finish/error
+        // await client.close();
+    }
 }
 run().catch(console.dir);
 
