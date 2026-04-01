@@ -54,6 +54,25 @@ const verifyFBToken = async (req, res, next) => {
   }
 };
 
+// VERIFY ADMIN ROLE MIDDLEWARE -->
+const verifyAdminRole = async (req, res, next) => {
+  const email = req.decoded_email;
+  
+  if (!email) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  const usersCollection = req.db.collection("users");
+  const user = await usersCollection.findOne({ email });
+
+  if (!user || user.role !== "admin") {
+    return res.status(403).send({ message: "forbidden access - admin only" });
+  }
+
+  req.user = user;
+  next();
+};
+
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.zrfyfih.mongodb.net/?appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -73,6 +92,13 @@ async function run() {
     const db = client.db("go_parcel_db");
     const parcelsCollection = db.collection("parcels");
     const paymentCollection = db.collection("payments");
+    const usersCollection = db.collection("users");
+
+    // Store db reference in app for middleware access
+    app.use((req, res, next) => {
+      req.db = db;
+      next();
+    });
 
     // PARCEL API --------->
     app.get("/parcels", async (req, res) => {
@@ -85,6 +111,14 @@ async function run() {
       const options = { sort: { createdAt: -1 } };
 
       const cursor = parcelsCollection.find(query, options);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    // GET ALL PARCELS - ADMIN ONLY
+    app.get("/admin/parcels", verifyFBToken, verifyAdminRole, async (req, res) => {
+      const options = { sort: { createdAt: -1 } };
+      const cursor = parcelsCollection.find({}, options);
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -285,3 +319,4 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
+// done
