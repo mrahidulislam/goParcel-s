@@ -1,5 +1,5 @@
-const express = require('express') //Server Setup
-const cors = require('cors'); //Server Setup
+const express = require('express')
+const cors = require('cors');
 const app = express()
 require('dotenv').config();
 
@@ -13,6 +13,14 @@ const port = process.env.PORT || 3000
 const crypto = require("crypto");
 const { send } = require('process');
 
+const admin = require("firebase-admin");
+
+const serviceAccount = require("./go-parcel-firebase-adminsdk.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
 function generateTrackingId() {
     const prefix = "PRCL";
     const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -21,16 +29,39 @@ function generateTrackingId() {
     return `${prefix}-${date}-${random}`;
 }
 
-// MIDDLEWARE --> 
+// MIDDLEWARE -->  
 
-app.use(express.json()); //Server Setup
-app.use(cors()); //Server Setup
+app.use(express.json());
+app.use(cors());
+
+const verifyFBToken = async (req, res, next) => {
+    // console.log('Headers In The Middleware', req.headers.authorization)
+    const token = req.headers.authorization;
+
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access ' })
+    }
+
+    try {
+        const idToken = token.split(' ')[1];
+        const decoded = await admin.auth().verifyIdToken(idToken);
+        console.log('Decoded In The Token', decoded);
+        req.decoded_email = decoded.email;
+
+        next();
+
+    }
+    catch (err) {
+        // return res.send(401).send({ message: 'unauthorize access' })
+        return res.status(401).send({ message: 'unauthorized access' });
+    }
+}
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.zrfyfih.mongodb.net/?appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(uri, { //Database Connection
+const client = new MongoClient(uri, {
     serverApi: {
         version: ServerApiVersion.v1,
         strict: true,
@@ -42,12 +73,12 @@ const client = new MongoClient(uri, { //Database Connection
 async function run() {
     try {
         // Connect the client to the server	(optional starting in v4.7)
-        await client.connect(); //Database Connection
+        await client.connect();
 
 
-        const db = client.db('go_parcel_db'); //Database Connection
-        const parcelsCollection = db.collection('parcels'); //Database Connection
-        const paymentCollection = db.collection('payments'); //Database Connection
+        const db = client.db('go_parcel_db');
+        const parcelsCollection = db.collection('parcels');
+        const paymentCollection = db.collection('payments');
 
 
         // PARCEL API --------->
@@ -72,7 +103,7 @@ async function run() {
             const result = await parcelsCollection.findOne(query);
             res.send(result);
         })
-        //Crete Parcel
+
         app.post('/parcels', async (req, res) => {
             const parcel = req.body;
 
@@ -120,7 +151,6 @@ async function run() {
         })
 
         // OLD-->
-        //Payment Related Code
         app.post('/create-checkout-session', async (req, res) => {
             const paymentInfo = req.body;
             const amount = parseInt(paymentInfo.cost) * 100;
@@ -153,6 +183,9 @@ async function run() {
             res.send({ url: session.url })
 
         })
+        
+        //Added Payment Transection ID feature
+
 
         // CHECK -->
         app.patch('/payment-success', async (req, res) => {
@@ -162,15 +195,15 @@ async function run() {
             // console.log('Session Retrieve : ', session);
 
             const transactionId = session.payment_intent;
-            const query = { transactionId: transactionId } 
+            const query = { transactionId: transactionId }
 
-            const paymentExists = await paymentCollection.findOne( query );
+            const paymentExists = await paymentCollection.findOne(query);
             console.log(paymentExists);
 
-            if ( paymentExists ) {
-                
-                return res.send({ 
-                    message: 'Already Exist', 
+            if (paymentExists) {
+
+                return res.send({
+                    message: 'Already Exist',
                     transactionId,
                     trackingId: paymentExists.trackingId
                 })
@@ -199,18 +232,18 @@ async function run() {
                     paymentStatus: session.payment_status,
                     paidAt: new Date(),
                     trackingId: trackingId
-                    
+
                 }
 
                 if (session.payment_status === 'paid') {
                     const resultPayment = await paymentCollection.insertOne(payment);
 
-                    res.send({ 
-                        success: true, 
-                        modifyParcel: result, 
+                    res.send({
+                        success: true,
+                        modifyParcel: result,
                         trackingId: trackingId,
                         transactionId: session.payment_intent,
-                        paymentInfo: resultPayment 
+                        paymentInfo: resultPayment
                     })
                 }
 
@@ -220,13 +253,22 @@ async function run() {
         })
 
         // PAYMENT RELATED API'S -->
-        app.get('/payments', async (req, res) => {
+        app.get('/payments', verifyFBToken, async (req, res) => {
             const email = req.query.email;
             const query = {}
-            if(email) {
-                query.customerEmail = email
+
+            // console.log('Headers',req.headers);
+
+
+            if (email) {
+                query.customerEmail = email;
+
+                // check email address ->
+                if(email !== req.decoded_email) {
+                    return res.status(403).send({ message: 'forbidden access'})
+                }
             }
-            const cursor = paymentCollection.find(query);
+            const cursor = paymentCollection.find(query).sort({paidAt: -1});
             const result = await cursor.toArray();
             res.send(result)
         })
@@ -249,3 +291,4 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })
+// cp done
